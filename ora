@@ -1,0 +1,162 @@
+#!/bin/bash
+
+# Functions --------------------------------------------------------------------
+
+# Print functions
+function red {
+  printf "\033[0;31m$1\033[0m\n"
+}
+function green {
+  printf "\033[0;32m$1\033[0m\n"
+}
+function current_branch {
+  printf $(git symbolic-ref HEAD 2> /dev/null | sed 's#refs/heads\/\(.*\)#\1#')
+}
+function execute {
+  green "$1"
+  eval $1
+
+  if [ $? -ne 0 ]
+  then
+    red "Failed"
+    exit
+  fi
+}
+function checkout {
+  local branch_from=$(current_branch)
+  local branch_to=$1
+
+  if [[ $branch_from =~ ^(develop|master|staging)$ ]] && [ -z "$(git status | grep 'nothing to commit')" ]
+  then
+    red "$branch_from cannot be dirty!"
+    exit
+  fi
+
+  if [ -z "$(git status | grep 'nothing to commit')" ]
+  then
+    execute "git stash save -u 'OraCli'"
+  fi
+
+  execute "git checkout $branch_to"
+
+  stash_name=$(git stash list | grep "On $branch_to: OraCli" | sed 's#:.*##')
+  if [ ! -z "$stash_name" ]
+  then
+    execute "git stash pop '$stash_name'"
+  fi
+}
+
+# Execute ----------------------------------------------------------------------
+
+branch=$(current_branch)
+parent_branch='develop'
+
+# Select command
+command=$1
+if [ -z "$1" ]
+then
+  command=$(printf 'new_branch\ncheckout\npush\nstaging\nmaster\ndelete\n' | selecta)
+fi
+green $command
+echo
+
+# Run command
+case $command in
+
+  'new_branch')
+    checkout $parent_branch
+    new_branch=$2
+    if [ -z "$2" ]
+    then
+      echo 'Type new branch name'
+      read new_branch
+    fi
+    execute "git pull origin $parent_branch"
+    execute "git checkout -b $new_branch"
+    ;;
+
+  'checkout')
+    checkout_branch=$2
+    if [ -z "$2" ]
+    then
+      checkout_branch=$(git branch --list | grep '^  ' | sed 's#^  ##' | selecta)
+    fi
+    checkout "$checkout_branch"
+    ;;
+
+  'push')
+    execute "git pull origin $parent_branch > /dev/null"
+    execute "git push origin $branch"
+    ;;
+
+  'staging')
+    checkout 'staging'
+    execute "git pull origin staging"
+    execute "git merge $branch > /dev/null"
+    execute "git push origin staging"
+    checkout "$branch"
+    echo ":merge: $branch => staging"
+    echo ":monorail: staging"
+    ;;
+
+  'master')
+    checkout 'develop'
+    execute 'git pull origin develop'
+    execute "git merge $branch > /dev/null"
+    execute "git push origin develop"
+    checkout 'master'
+    execute "git pull origin master"
+    execute "git merge develop > /dev/null"
+    execute "git push origin master"
+    execute "git fetch --tags"
+    tags=$(git tag | grep "^v[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+$" | sed 's#v\([0-9]*\)\.\([0-9]*\)\.\([0-9]*\)\.\([0-9]*\)#\1 \2 \3 \4#' | sort -n -k1,1 -k2,2 -k3,3 -k4,4 | tail -5)
+    echo "Latest versions:"
+    echo "$tags" | sed 's#\([0-9]*\) \([0-9]*\) \([0-9]*\) \([0-9]*\)#v\1.\2.\3.\4#'
+    new_tag="$(echo "$tags" | tail -1 | awk '{print "v" $1 "." $2 "." $3 "." $4+1}')"
+    custom_tag="$2"
+    if [ -z "$custom_tag" ]
+    then
+      echo "Enter to use $new_tag or type new version:"
+      echo "New Version: "
+      read custom_tag
+    fi
+    if [[ "$custom_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
+    then
+      new_tag="$custom_tag"
+    elif ! [ -z "$custom_tag" ]
+    then
+      red "$custom_tag is invalid. $new_tag will be used instead."
+    fi
+    execute "git tag -a '$new_tag' -m 'message'"
+    execute "git push --tags"
+
+    checkout "$branch"
+    if [ "$branch" != 'develop' ]
+    then
+      echo ":merge: $branch => develop"
+    fi
+    echo ":merge: develop => master"
+    echo ":monorail: master"
+    ;;
+
+  'delete')
+    delete_branch=$2
+    if [ -z "$2" ]
+    then
+      delete_branch=$(git branch --list | grep '^  ' | sed 's#^  ##' | selecta)
+    fi
+    if [[ $delete_branch =~ protect_branches ]]
+    then
+      red "$delete_branch cannot be deleted"
+      exit
+    fi
+    checkout "$parent_branch"
+    execute "git branch -D $delete_branch"
+    execute "git push origin :$delete_branch"
+    ;;
+
+  *)
+    red 'Unknown command'
+    exit
+    ;;
+esac
