@@ -145,9 +145,9 @@ case $command in
     delete_branch=$2
     if [ -z "$2" ]
     then
-      delete_branch=$(git branch --list | grep '^  ' | sed 's#^  ##' | selecta)
+      delete_branch=$(git branch --list | sed 's#^[* ] ##' | grep -ve 'develop\|master\|staging'| selecta)
     fi
-    if [[ $delete_branch =~ protect_branches ]]
+    if [[ $delete_branch =~ ^(develop|master|staging)$ ]]
     then
       red "$delete_branch cannot be deleted"
       exit
