@@ -271,4 +271,36 @@ silent '../../ora master v2.1.2.4'
 assert "$(git tag)" 'v2.1.2.4'
 cd ../..
 
+# Set tag message
+$(setup)
+cd test/client
+silent 'git checkout master'
+silent 'git tag -a "v2.1.1.2" -m "tag1"'
+silent '../../ora new_branch branch1'
+silent '../../ora new_branch branch2'
+silent 'touch text2.txt'
+silent 'git add -A'
+silent 'git commit -m "add test2.txt"'
+silent 'git checkout branch1'
+silent 'touch test3.txt'
+silent 'git add -A'
+silent 'git commit -m "add test3.txt"'
+silent 'git merge branch2 > /dev/null'
+silent 'git commit --amend -m "12dd181 Merge pull request #1234 from ora-cli/branch2"'
+
+silent 'git checkout branch2'
+silent 'touch text4.txt'
+silent 'git add -A'
+silent 'git commit -m "add test4.txt"'
+silent 'git checkout branch1'
+silent 'touch test5.txt'
+silent 'git add -A'
+silent 'git commit -m "add test5.txt"'
+silent 'git merge branch2 > /dev/null'
+silent 'git commit --amend -m "12dd181 Merge pull request #5678 from ora-cli/branch3"'
+
+silent '../../ora master v2.1.2.4'
+assert "$(git tag -n)" "5678 ora-cli/branch3\n1234 ora-cli/branch2"
+cd ../..
+
 echo
